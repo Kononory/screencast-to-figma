@@ -105,6 +105,17 @@ Figma plugin   — polls /status → fetches /plugin-manifest → downloads imag
 
 ## Session History
 
+### Session 17
+- **Published to GitHub** — repo at https://github.com/Kononory/screencast-to-figma. Local server model: users clone, run `python app.py`, load plugin in Figma desktop. No hosted backend.
+- **Plugin: API provider setup screen** — on first launch the plugin shows a settings screen with provider selector (Gemini / OpenAI / Claude / No AI) and API key input. Settings saved to `figma.clientStorage` and persist across sessions. "Change" link in footer returns to settings.
+- **Plugin: AI features dimmed when no key** — AI Classification and Competitive Intelligence sections rendered at 35% opacity with `pointer-events: none` when no API configured. "Set up AI API →" link shown below them.
+- **API key travels with each request** — plugin sends `api_key` and `provider` with every `/upload` and `/compare` POST. `app.py` uses request value first, falls back to `GEMINI_API_KEY` env var. Key threaded through `_run_pipeline_from_file` → `_process` → `classify_frames` / `analyze_ux`. Server no longer requires env key if plugin provides one.
+- **Removed FIGMA_TOKEN** — not used anywhere in code. Dropped from `.env.example`.
+- **Removed server URL field from settings** — all users run locally so `localhost:5055` is constant. No configurable URL.
+- **`.gitignore` updated** — added `output/` and `diffs_debug.txt`.
+
+
+
 ### Session 1–2 (initial build)
 - Built ffmpeg extractor, Gemini classifier, Flask server
 - Added Figma plugin with section layout
