@@ -1,0 +1,12 @@
+{
+  "name": "Screencast Importer",
+  "id": "screencast-to-figma-importer",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma"],
+  "networkAccess": {
+    "allowedDomains": ["*"],
+    "reasoning": "Fetches extracted screenshots from a local Flask server running on the user's machine"
+  }
+}

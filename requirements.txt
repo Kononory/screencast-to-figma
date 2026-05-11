@@ -1,0 +1,8 @@
+flask
+yt-dlp
+ffmpeg-python
+imagehash
+Pillow
+google-genai
+requests
+python-dotenv

@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/figma-plugin-ds@1.0.1/dist/figma-plugin-ds.min.css">
+<style>
+  body { margin: 0; padding: 12px 12px 8px; }
+
+  /* ── screens ── */
+  .screen { display: none; }
+  .screen.active { display: block; }
+
+  /* ── settings screen ── */
+  .provider-list { margin: 10px 0; }
+  .provider-option {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 8px; border-radius: 4px; cursor: pointer;
+    transition: background 0.1s;
+  }
+  .provider-option:hover { background: #f5f5f5; }
+  .provider-option input[type=radio] { margin: 0; cursor: pointer; accent-color: #18a0fb; }
+  .provider-name { font-size: 11px; font-weight: 600; color: #333; }
+
+  .field-label { font-size: 11px; font-weight: 600; color: #333; margin-bottom: 4px; }
+  .text-input {
+    width: 100%; box-sizing: border-box;
+    border: 1px solid #e5e5e5; border-radius: 4px;
+    padding: 6px 8px; font-size: 11px; color: #333;
+    outline: none; transition: border-color 0.15s;
+  }
+  .text-input:focus { border-color: #18a0fb; }
+  .settings-error { font-size: 10px; color: #f24822; min-height: 14px; margin-top: 4px; }
+
+  /* ── drop zone ── */
+  .drop-zone {
+    border: 1px dashed #ccc; border-radius: 4px;
+    padding: 20px 12px; text-align: center; cursor: pointer;
+    margin-bottom: 8px; transition: border-color 0.15s, background 0.15s;
+  }
+  .drop-zone.over,
+  .drop-zone.ready { border-color: #18a0fb; background: #f0f8ff; border-style: solid; }
+
+  .divider { height: 1px; background: #e5e5e5; margin: 10px 0; }
+  .row { display: flex; align-items: center; gap: 6px; }
+
+  .bar-wrap { margin: 6px 0 4px; }
+  .bar-track { height: 2px; background: #e5e5e5; border-radius: 1px; overflow: hidden; }
+  .bar-fill { height: 100%; width: 0%; background: #18a0fb; transition: width 0.4s; }
+
+  #status { color: #999; min-height: 14px; }
+  #status.error { color: #f24822; }
+
+  .slider-row { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+  .slider-val { min-width: 16px; font-size: 11px; font-weight: 600; color: #333; text-align: right; }
+
+  input[type=range] {
+    -webkit-appearance: none; appearance: none;
+    flex: 1; height: 2px; border-radius: 1px;
+    background: #e5e5e5; outline: none; cursor: pointer; margin: 0;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 12px; height: 12px;
+    border-radius: 50%; background: #fff;
+    border: 1.5px solid #18a0fb; box-shadow: 0 1px 3px rgba(0,0,0,0.15); cursor: pointer;
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 12px; height: 12px; border-radius: 50%; background: #fff;
+    border: 1.5px solid #18a0fb; box-shadow: 0 1px 3px rgba(0,0,0,0.15); cursor: pointer;
+  }
+
+  .log-area {
+    width: 100%; height: 110px; font-size: 10px; font-family: monospace;
+    background: #1a1a1a; color: #b0ffb0; border: none; border-radius: 2px;
+    padding: 6px 8px; box-sizing: border-box; resize: none; display: block;
+  }
+
+  .hidden { display: none !important; }
+
+  .toggle-label { position:relative; display:inline-block; width:32px; height:18px; cursor:pointer; flex-shrink:0; }
+  .toggle-label input { opacity:0; width:0; height:0; position:absolute; }
+  .toggle-track { position:absolute; inset:0; border-radius:9px; background:#e5e5e5; transition:background 0.2s; }
+  .toggle-label input:checked ~ .toggle-track { background:#18a0fb; }
+  .toggle-thumb { position:absolute; top:2px; left:2px; width:14px; height:14px; border-radius:50%; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,0.2); transition:transform 0.2s; }
+  .toggle-label input:checked ~ .toggle-track .toggle-thumb { transform:translateX(14px); }
+
+  /* ── AI disabled state ── */
+  .ai-section.disabled { opacity: 0.35; pointer-events: none; }
+  .ai-setup-cta {
+    margin: 8px 0 4px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .ai-setup-cta .type { color: #999; }
+  .link-btn {
+    background: none; border: none; padding: 0;
+    font-size: 11px; color: #18a0fb; cursor: pointer; text-decoration: underline;
+  }
+
+  /* ── AI footer (when enabled) ── */
+  .ai-footer { margin-top: 6px; display: flex; align-items: center; gap: 4px; }
+  .ai-footer .type { color: #bbb; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════ SETTINGS SCREEN ═══════════════════════════ -->
+<div id="screen-settings" class="screen">
+  <div class="type type--medium" style="margin-bottom:2px">AI Provider</div>
+  <div class="type" style="color:#999">Choose how to classify screens</div>
+
+  <div class="provider-list">
+    <label class="provider-option">
+      <input type="radio" name="provider" value="gemini">
+      <span class="provider-name">Gemini</span>
+    </label>
+    <label class="provider-option">
+      <input type="radio" name="provider" value="openai">
+      <span class="provider-name">OpenAI</span>
+    </label>
+    <label class="provider-option">
+      <input type="radio" name="provider" value="claude">
+      <span class="provider-name">Claude</span>
+    </label>
+    <label class="provider-option">
+      <input type="radio" name="provider" value="none">
+      <span class="provider-name">No AI</span>
+    </label>
+  </div>
+
+  <div id="api-key-row" style="margin-bottom:10px">
+    <div class="field-label">API Key</div>
+    <input type="password" id="api-key-input" class="text-input" placeholder="Paste your API key…" autocomplete="off">
+  </div>
+
+  <div class="settings-error" id="settings-error"></div>
+
+  <button class="button button--primary" style="width:100%;margin-top:4px" onclick="saveSettings()">
+    Save &amp; Continue
+  </button>
+</div>
+
+<!-- ═══════════════════════════ MAIN SCREEN ═══════════════════════════ -->
+<div id="screen-main" class="screen">
+
+  <input type="file" id="file-input" accept="video/*" style="display:none" onchange="onFileChosen(this)">
+
+  <div class="drop-zone" id="drop-zone"
+    onclick="document.getElementById('file-input').click()"
+    ondragover="event.preventDefault();this.classList.add('over')"
+    ondragleave="this.classList.remove('over')"
+    ondrop="onDrop(event)">
+    <div class="type type--medium" style="margin-bottom:2px" id="drop-label">Drop screen recording or click</div>
+    <div class="type" style="color:#999">MP4 · MOV · recorded on phone</div>
+  </div>
+
+  <button id="btn" class="button button--primary" style="width:100%;margin-bottom:8px" onclick="run()" disabled>
+    Process &amp; Import
+  </button>
+
+  <div id="progress-section" class="hidden">
+    <div class="bar-wrap">
+      <div class="bar-track"><div class="bar-fill" id="bar"></div></div>
+    </div>
+    <div id="status" class="type"></div>
+    <div class="divider"></div>
+  </div>
+
+  <div class="divider"></div>
+  <div style="margin-bottom:6px">
+    <div class="type type--medium">Deduplication</div>
+    <div class="type" style="color:#999;margin-top:1px">Remove repeated frames before AI processes them</div>
+  </div>
+  <div class="slider-row">
+    <span class="type" style="color:#bbb">Careful</span>
+    <input id="dedup-slider" type="range" min="1" max="10" value="3" oninput="updateSlider(this)">
+    <span class="type" style="color:#bbb">Aggressive</span>
+    <span class="slider-val" id="dedup-val">3</span>
+  </div>
+
+  <!-- AI features — disabled class applied when no API key -->
+  <div id="ai-section" class="ai-section">
+    <div class="divider"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">
+      <div>
+        <div class="type type--medium">AI Classification</div>
+        <div class="type" style="color:#999;margin-top:1px">Label and group screens by type</div>
+      </div>
+      <label class="toggle-label">
+        <input type="checkbox" id="classify-toggle" checked>
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+      </label>
+    </div>
+
+    <div class="divider"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">
+      <div>
+        <div class="type type--medium">Competitive Intelligence</div>
+        <div class="type" style="color:#999;margin-top:1px">Compare strategy against a previous session</div>
+      </div>
+      <label class="toggle-label">
+        <input type="checkbox" id="compare-toggle" onchange="onCompareToggle(this)">
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+      </label>
+    </div>
+    <div id="compare-session-row" class="hidden" style="margin-bottom:4px">
+      <select id="compare-select" style="width:100%;background:#fff;border:1px solid #e5e5e5;border-radius:4px;padding:6px 8px;font-size:11px;color:#333;outline:none">
+        <option value="">Loading sessions…</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- CTA shown when AI is disabled -->
+  <div id="ai-setup-cta" class="ai-setup-cta hidden">
+    <div class="divider" style="flex:1;margin:0"></div>
+  </div>
+  <div id="ai-setup-btn-row" class="hidden" style="margin:8px 0 4px;text-align:center">
+    <button class="link-btn" onclick="showScreen('settings')">Set up AI API →</button>
+  </div>
+
+  <!-- footer when AI is enabled -->
+  <div id="ai-footer" class="ai-footer hidden">
+    <span class="type" id="ai-provider-label"></span>
+    <span class="type">·</span>
+    <button class="link-btn" onclick="showScreen('settings')">change</button>
+  </div>
+
+  <div id="log-section" class="hidden">
+    <div class="divider"></div>
+    <textarea id="log-area" class="log-area" readonly></textarea>
+  </div>
+
+  <button id="close-btn" class="button hidden" style="width:100%;margin-top:8px"
+    onclick="parent.postMessage({pluginMessage:{type:'close'}},'*')">
+    Close plugin
+  </button>
+
+</div><!-- /screen-main -->
+
+<script>
+  const SERVER = 'http://localhost:5055';
+  let currentSettings = null;
+
+  // ── Settings ────────────────────────────────────────────────────────────────
+
+  function showScreen(name) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById('screen-' + name).classList.add('active');
+    if (name === 'settings') prefillSettings();
+  }
+
+  function prefillSettings() {
+    if (!currentSettings) return;
+    const radios = document.querySelectorAll('input[name="provider"]');
+    radios.forEach(r => { r.checked = r.value === currentSettings.provider; });
+    document.getElementById('api-key-input').value = currentSettings.apiKey || '';
+    toggleApiKeyRow(currentSettings.provider);
+  }
+
+  function toggleApiKeyRow(provider) {
+    document.getElementById('api-key-row').style.display = (provider === 'none' || !provider) ? 'none' : 'block';
+  }
+
+  document.querySelectorAll('input[name="provider"]').forEach(r => {
+    r.addEventListener('change', () => {
+      toggleApiKeyRow(r.value);
+      document.getElementById('settings-error').textContent = '';
+    });
+  });
+
+  function saveSettings() {
+    const selected = document.querySelector('input[name="provider"]:checked');
+    if (!selected) {
+      document.getElementById('settings-error').textContent = 'Select a provider.';
+      return;
+    }
+    const provider = selected.value;
+    const apiKey = document.getElementById('api-key-input').value.trim();
+
+    if (provider !== 'none' && !apiKey) {
+      document.getElementById('settings-error').textContent = 'Paste your API key.';
+      return;
+    }
+
+    const settings = { provider, apiKey };
+    parent.postMessage({ pluginMessage: { type: 'setStorage', key: 'settings', value: settings } }, '*');
+    applySettings(settings);
+    showScreen('main');
+  }
+
+  function applySettings(settings) {
+    currentSettings = settings;
+
+    const hasAI = settings.provider && settings.provider !== 'none' && settings.apiKey;
+    const aiSection = document.getElementById('ai-section');
+    aiSection.classList.toggle('disabled', !hasAI);
+
+    document.getElementById('ai-setup-btn-row').classList.toggle('hidden', !!hasAI);
+    document.getElementById('ai-footer').classList.toggle('hidden', !hasAI);
+
+    if (hasAI) {
+      const labels = { gemini: 'Gemini', openai: 'OpenAI', claude: 'Claude' };
+      document.getElementById('ai-provider-label').textContent = labels[settings.provider] || settings.provider;
+    }
+  }
+
+  // ── Main screen ─────────────────────────────────────────────────────────────
+
+  function updateSlider(el) {
+    const pct = (el.value - el.min) / (el.max - el.min) * 100;
+    el.style.background = `linear-gradient(to right, #18a0fb ${pct}%, #e5e5e5 ${pct}%)`;
+    document.getElementById('dedup-val').textContent = el.value;
+  }
+  updateSlider(document.getElementById('dedup-slider'));
+
+  const STEP_LABELS = {
+    'Loading file':       'Loading file…',
+    'Downloading':        'Downloading…',
+    'Extracting frames':  'Extracting frames…',
+    'Classifying flows':  'Classifying screens…',
+    'Analyzing':          'Analyzing UX patterns…',
+    'Saving':             'Saving…',
+    'Done':               'Done',
+  };
+
+  let file = null;
+  let pollTimer = null;
+  let jobStats = { extracted: 0, dupes: 0 };
+
+  function onFileChosen(input) { if (input.files[0]) setFile(input.files[0]); }
+  function onDrop(e) {
+    e.preventDefault();
+    document.getElementById('drop-zone').classList.remove('over');
+    if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
+  }
+  function setFile(f) {
+    file = f;
+    document.getElementById('drop-label').textContent = f.name;
+    document.getElementById('drop-zone').classList.add('ready');
+    document.getElementById('btn').disabled = false;
+  }
+
+  async function onCompareToggle(checkbox) {
+    const row = document.getElementById('compare-session-row');
+    if (checkbox.checked) {
+      row.classList.remove('hidden');
+      await loadSessions();
+    } else {
+      row.classList.add('hidden');
+    }
+  }
+
+  async function loadSessions() {
+    const sel = document.getElementById('compare-select');
+    try {
+      const res = await fetch(`${SERVER}/sessions`);
+      const sessions = await res.json();
+      if (!sessions.length) {
+        sel.innerHTML = '<option value="">No previous sessions</option>';
+        return;
+      }
+      sel.innerHTML = sessions.map(s => {
+        const tier = s.competitive_tier ? ` · ${s.competitive_tier.slice(0, 40)}` : '';
+        const funnel = s.funnel_length ? ` · ${s.funnel_length} screens` : '';
+        return `<option value="${s.job_id}">${s.job_id.slice(0, 8)}${funnel}${tier}</option>`;
+      }).join('');
+    } catch {
+      sel.innerHTML = '<option value="">Could not load sessions</option>';
+    }
+  }
+
+  async function runComparison(jobId) {
+    const compareJobId = document.getElementById('compare-select').value;
+    if (!compareJobId) return;
+    setStatus('Running competitive analysis…');
+    try {
+      const body = { job_a: jobId, job_b: compareJobId };
+      if (currentSettings?.apiKey) {
+        body.api_key = currentSettings.apiKey;
+        body.provider = currentSettings.provider;
+      }
+      const res = await fetch(`${SERVER}/compare`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (!res.ok) throw new Error('Comparison failed');
+      const data = await res.json();
+      const lines = Object.entries(data.comparison).map(([k, v]) => `[${k}]\n${v}`);
+      const area = document.getElementById('log-area');
+      area.value = lines.join('\n\n');
+      area.scrollTop = 0;
+      document.getElementById('log-section').classList.remove('hidden');
+    } catch (e) {
+      setStatus(e.message, true);
+    }
+  }
+
+  async function run() {
+    document.getElementById('btn').disabled = true;
+    document.getElementById('progress-section').classList.remove('hidden');
+    document.getElementById('log-section').classList.add('hidden');
+    document.getElementById('close-btn').classList.add('hidden');
+    setStatus('Uploading…');
+    setBar(5);
+
+    const form = new FormData();
+    form.append('file', file);
+    const dedup = document.getElementById('dedup-slider').value;
+    form.append('consec_threshold', dedup);
+    form.append('global_threshold', dedup);
+
+    const hasAI = currentSettings?.provider && currentSettings.provider !== 'none' && currentSettings.apiKey;
+    const classifyEnabled = hasAI && document.getElementById('classify-toggle').checked;
+    form.append('classify', classifyEnabled ? 'true' : 'false');
+
+    if (currentSettings?.apiKey) form.append('api_key', currentSettings.apiKey);
+    if (currentSettings?.provider) form.append('provider', currentSettings.provider);
+
+    let jobId;
+    try {
+      const res = await fetch(`${SERVER}/upload`, { method: 'POST', body: form });
+      if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+      jobId = (await res.json()).job_id;
+    } catch (e) {
+      setStatus(e.message, true);
+      document.getElementById('btn').disabled = false;
+      return;
+    }
+
+    pollTimer = setInterval(() => poll(jobId), 1500);
+  }
+
+  async function poll(jobId) {
+    try {
+      const res = await fetch(`${SERVER}/status/${jobId}`);
+      const data = await res.json();
+
+      setBar(data.progress || 0);
+      const last = data.log?.[data.log.length - 1] || '';
+      setStatus(STEP_LABELS[data.step] || last || '…');
+
+      if (data.status === 'done') {
+        clearInterval(pollTimer);
+        jobStats = { extracted: data.extracted || 0, dupes: data.dupes || 0 };
+        showLog(data.log);
+        if (document.getElementById('compare-toggle').checked) {
+          await runComparison(jobId);
+        }
+        setStatus('Importing into Figma…');
+        setBar(95);
+        await importToFigma(jobId);
+      }
+      if (data.status === 'error') {
+        clearInterval(pollTimer);
+        showLog(data.log);
+        setStatus(last, true);
+        document.getElementById('btn').disabled = false;
+      }
+    } catch {
+      clearInterval(pollTimer);
+      setStatus('Lost connection to server', true);
+    }
+  }
+
+  async function importToFigma(jobId) {
+    let manifest;
+    try {
+      const res = await fetch(`${SERVER}/plugin-manifest/${jobId}`);
+      if (!res.ok) throw new Error(`Manifest fetch failed: ${res.status}`);
+      manifest = await res.json();
+    } catch (e) {
+      setStatus(e.message, true);
+      return;
+    }
+
+    const { sections, analysis } = manifest;
+    const total = sections.reduce((n, s) => n + s.images.length, 0);
+    let done = 0;
+
+    for (const section of sections) {
+      const loaded = [];
+      for (const img of section.images) {
+        try {
+          const buf = await (await fetch(img.url)).arrayBuffer();
+          loaded.push({ bytes: Array.from(new Uint8Array(buf)), label: img.label, key_text: img.key_text, components: img.components, state: img.state || '' });
+        } catch {
+          loaded.push({ bytes: [], label: img.label, key_text: img.key_text, components: img.components, state: img.state || '' });
+        }
+        done++;
+        setStatus(`Downloading ${done} / ${total} screens…`);
+        setBar(95 + (done / total) * 4);
+      }
+      section.images = loaded;
+    }
+
+    parent.postMessage({ pluginMessage: { type: 'import', sections, analysis } }, '*');
+  }
+
+  function setBar(pct) {
+    document.getElementById('bar').style.width = Math.min(100, pct) + '%';
+  }
+
+  function setStatus(msg, isError) {
+    const el = document.getElementById('status');
+    el.textContent = msg;
+    el.className = 'type' + (isError ? ' error' : '');
+  }
+
+  function showLog(lines) {
+    document.getElementById('log-section').classList.remove('hidden');
+    const area = document.getElementById('log-area');
+    area.value = (lines || []).join('\n');
+    area.scrollTop = area.scrollHeight;
+  }
+
+  window.onmessage = (e) => {
+    const msg = e.data?.pluginMessage;
+    if (!msg) return;
+
+    if (msg.type === 'init') {
+      if (!msg.settings || !msg.settings.provider) {
+        showScreen('settings');
+      } else {
+        applySettings(msg.settings);
+        showScreen('main');
+      }
+      return;
+    }
+
+    if (msg.type === 'done') {
+      setBar(100);
+      const dupeNote = jobStats.dupes > 0 ? ` · ${jobStats.dupes} dupes removed` : '';
+      setStatus(`${jobStats.extracted} extracted · ${msg.total} imported${dupeNote}`);
+      document.getElementById('close-btn').classList.remove('hidden');
+      document.getElementById('btn').disabled = false;
+    }
+  };
+</script>
+</body>
+</html>
