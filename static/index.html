@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Screencast → Figma</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, sans-serif; background: #111; color: #eee; display: flex; justify-content: center; padding: 48px 16px; }
+    .card { background: #1a1a1a; border-radius: 12px; padding: 32px; width: 100%; max-width: 520px; }
+    h1 { font-size: 20px; margin-bottom: 24px; color: #fff; }
+    label { display: block; font-size: 13px; color: #888; margin-bottom: 6px; }
+
+    .tabs { display: flex; gap: 4px; margin-bottom: 16px; background: #222; border-radius: 8px; padding: 4px; }
+    .tab { flex: 1; text-align: center; padding: 7px; border-radius: 6px; font-size: 13px; cursor: pointer; color: #666; }
+    .tab.active { background: #333; color: #fff; }
+    .source-panel { display: none; }
+    .source-panel.active { display: block; }
+
+    input[type=text], input[type=number] {
+      width: 100%; background: #222; border: 1px solid #333; border-radius: 8px;
+      color: #fff; padding: 10px 12px; font-size: 14px; margin-bottom: 16px; outline: none;
+    }
+    input:focus { border-color: #555; }
+
+    .drop-zone {
+      border: 2px dashed #333; border-radius: 8px; padding: 32px 16px;
+      text-align: center; color: #555; font-size: 13px; cursor: pointer;
+      margin-bottom: 16px; transition: border-color 0.15s;
+    }
+    .drop-zone.over, .drop-zone.has-file { border-color: #7c6fcd; color: #9080e0; }
+
+    .row { display: flex; gap: 12px; }
+    .row > div { flex: 1; }
+
+    button {
+      width: 100%; background: #7c6fcd; border: none; border-radius: 8px;
+      color: #fff; padding: 12px; font-size: 15px; font-weight: 600; cursor: pointer;
+    }
+    button:hover { background: #9080e0; }
+    button:disabled { background: #333; color: #555; cursor: default; }
+
+    /* progress */
+    #progress-wrap { display: none; margin-top: 20px; }
+    .steps { display: flex; justify-content: space-between; margin-bottom: 10px; }
+    .step-dot { display: flex; flex-direction: column; align-items: center; gap: 5px; flex: 1; }
+    .step-dot span { font-size: 11px; color: #555; text-align: center; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: #333; transition: background 0.3s; }
+    .dot.active { background: #7c6fcd; box-shadow: 0 0 6px #7c6fcd88; }
+    .dot.done { background: #6fcf97; }
+    .bar-track { height: 4px; background: #2a2a2a; border-radius: 2px; overflow: hidden; }
+    .bar-fill { height: 100%; background: linear-gradient(90deg, #7c6fcd, #6fcf97); border-radius: 2px; transition: width 0.4s ease; width: 0%; }
+
+    #log { margin-top: 14px; background: #111; border-radius: 8px; padding: 12px; font-size: 12px; font-family: monospace; max-height: 180px; overflow-y: auto; }
+    .log-line { color: #555; margin-bottom: 3px; }
+    .log-line.active { color: #bbb; }
+    .log-line.done { color: #6fcf97; font-weight: 600; }
+    .log-line.error { color: #eb5757; }
+
+    #done-hint { display: none; margin-top: 16px; background: #1a2a1a; border: 1px solid #2d6a2d; border-radius: 8px; padding: 14px; font-size: 13px; color: #7ecf7e; line-height: 1.8; }
+    #done-hint code { background: #0d1f0d; padding: 2px 6px; border-radius: 4px; font-size: 12px; cursor: pointer; user-select: all; }
+    #done-hint .hint-title { font-weight: 600; margin-bottom: 6px; color: #9fe89f; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <h1>Screencast → Figma</h1>
+
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('url')">URL</div>
+    <div class="tab" onclick="switchTab('file')">Local file</div>
+  </div>
+
+  <div id="panel-url" class="source-panel active">
+    <label>Video URL</label>
+    <input type="text" id="video_url" placeholder="YouTube / Loom / direct mp4 link" />
+  </div>
+
+  <div id="panel-file" class="source-panel">
+    <input type="file" id="file_input" accept="video/*" style="display:none" onchange="onFileChosen(this)">
+    <div class="drop-zone" id="drop-zone"
+      onclick="document.getElementById('file_input').click()"
+      ondragover="event.preventDefault(); this.classList.add('over')"
+      ondragleave="this.classList.remove('over')"
+      ondrop="onDrop(event)">
+      Drop video here or click to browse
+    </div>
+  </div>
+
+  <button id="btn" onclick="start()">Run</button>
+
+  <div id="progress-wrap">
+    <div class="steps">
+      <div class="step-dot"><div class="dot" id="dot-0"></div><span>Download</span></div>
+      <div class="step-dot"><div class="dot" id="dot-1"></div><span>Extract</span></div>
+      <div class="step-dot"><div class="dot" id="dot-2"></div><span>Classify</span></div>
+      <div class="step-dot"><div class="dot" id="dot-3"></div><span>Save</span></div>
+      <div class="step-dot"><div class="dot" id="dot-4"></div><span>Done</span></div>
+    </div>
+    <div class="bar-track"><div class="bar-fill" id="bar"></div></div>
+    <div id="log"></div>
+  </div>
+
+  <div id="done-hint">
+    <div class="hint-title">Ready to import to Figma</div>
+    1. Open Figma → Plugins → Development → Import plugin from manifest<br>
+    2. Select <code>static/figma-plugin/manifest.json</code><br>
+    3. Run the plugin, paste Job ID: <code id="job-span"></code>
+  </div>
+</div>
+
+<script>
+  let currentJob = null;
+  let pollTimer = null;
+  let activeTab = "url";
+  let droppedFile = null;
+
+  const STEP_MAP = {
+    "Downloading": 1, "Loading file": 1,
+    "Extracting frames": 2,
+    "Classifying flows": 3,
+    "Saving": 4,
+    "Done": 5
+  };
+
+  function switchTab(tab) {
+    activeTab = tab;
+    document.querySelectorAll(".tab").forEach((el, i) => el.classList.toggle("active", (i === 0) === (tab === "url")));
+    document.getElementById("panel-url").classList.toggle("active", tab === "url");
+    document.getElementById("panel-file").classList.toggle("active", tab === "file");
+  }
+
+  function onFileChosen(input) { if (input.files[0]) setFile(input.files[0]); }
+  function onDrop(e) {
+    e.preventDefault();
+    document.getElementById("drop-zone").classList.remove("over");
+    const f = e.dataTransfer.files[0];
+    if (f) setFile(f);
+  }
+  function setFile(f) {
+    droppedFile = f;
+    const dz = document.getElementById("drop-zone");
+    dz.textContent = f.name;
+    dz.classList.add("has-file");
+  }
+
+  async function start() {
+    document.getElementById("btn").disabled = true;
+    document.getElementById("log").innerHTML = "";
+    document.getElementById("done-hint").style.display = "none";
+    document.getElementById("progress-wrap").style.display = "block";
+    setProgress(0, "");
+
+    let res;
+    if (activeTab === "url") {
+      const url = document.getElementById("video_url").value.trim();
+      if (!url) { document.getElementById("btn").disabled = false; return; }
+      res = await fetch("/process", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ video_url: url })
+      });
+    } else {
+      if (!droppedFile) { document.getElementById("btn").disabled = false; return; }
+      const form = new FormData();
+      form.append("file", droppedFile);
+      res = await fetch("/upload", { method: "POST", body: form });
+    }
+
+    const data = await res.json();
+    currentJob = data.job_id;
+    document.getElementById("job-span").textContent = currentJob;
+    pollTimer = setInterval(poll, 1500);
+  }
+
+  async function poll() {
+    const res = await fetch("/status/" + currentJob);
+    const data = await res.json();
+
+    setProgress(data.progress || 0, data.step || "");
+
+    const logEl = document.getElementById("log");
+    logEl.innerHTML = data.log.map((l, i) => {
+      const isLast = i === data.log.length - 1;
+      const isDone = l.startsWith("Done");
+      const isErr = l.startsWith("Error");
+      const cls = isDone ? "done" : isErr ? "error" : isLast ? "active" : "";
+      return `<div class="log-line ${cls}">${l}</div>`;
+    }).join("");
+    logEl.scrollTop = logEl.scrollHeight;
+
+    if (data.status === "done") {
+      clearInterval(pollTimer);
+      document.getElementById("btn").disabled = false;
+      document.getElementById("done-hint").style.display = "block";
+    }
+    if (data.status === "error") {
+      clearInterval(pollTimer);
+      document.getElementById("btn").disabled = false;
+    }
+  }
+
+  function setProgress(pct, stepLabel) {
+    document.getElementById("bar").style.width = pct + "%";
+    const activeStep = STEP_MAP[stepLabel] || 0;
+    for (let i = 0; i < 5; i++) {
+      const dot = document.getElementById("dot-" + i);
+      dot.className = "dot" + (i + 1 < activeStep ? " done" : i + 1 === activeStep ? " active" : "");
+    }
+  }
+</script>
+</body>
+</html>
