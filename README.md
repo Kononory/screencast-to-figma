@@ -24,17 +24,9 @@ bash install.sh
 # Windows — double-click install.bat
 ```
 
-The script checks your Python version, creates a virtual environment, and installs all dependencies. It also warns if ffmpeg is missing.
+The script checks your Python version, creates a virtual environment, installs all dependencies, and registers the server to start automatically on login. It also warns if ffmpeg is missing.
 
-**Start the server** (every time you use it):
-
-```bash
-# macOS / Linux
-source venv/bin/activate && python app.py
-
-# Windows
-venv\Scripts\activate && python app.py
-```
+That's it — the server runs in the background. Just open Figma and use the plugin.
 
 **2. Load the plugin in Figma desktop**
 
