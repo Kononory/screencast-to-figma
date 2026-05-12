@@ -22,7 +22,7 @@ python app.py
 **2. Load the plugin in Figma desktop**
 
 > Main menu → Plugins → Development → **Import plugin from manifest**
-> → select `screencast-to-figma/static/figma-plugin/manifest.json`
+> → navigate to the cloned repo and select `static/figma-plugin/manifest.json`
 
 **3. Open the plugin, paste your API key, drop a video**
 
@@ -33,12 +33,24 @@ On first launch the plugin asks which AI provider to use (Gemini, OpenAI, or Cla
 ## Requirements
 
 - Python 3.10+
-- [ffmpeg](https://ffmpeg.org/download.html) installed and on PATH
 - Figma desktop app
+- ffmpeg on PATH:
+
+  ```bash
+  # macOS
+  brew install ffmpeg
+
+  # Ubuntu / Debian
+  sudo apt install ffmpeg
+
+  # Windows — download from https://ffmpeg.org/download.html and add to PATH
+  ```
+
 - API key from one of:
   - [Google AI Studio](https://aistudio.google.com/apikey) — Gemini (free tier)
   - [OpenAI](https://platform.openai.com/api-keys)
   - [Anthropic](https://console.anthropic.com/)
+  - Or skip AI entirely — plugin still extracts and imports frames
 
 ---
 
