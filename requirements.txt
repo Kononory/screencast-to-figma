@@ -4,6 +4,6 @@ ffmpeg-python
 imagehash
 Pillow
 opencv-python
+numpy
 google-genai
-requests
 python-dotenv
