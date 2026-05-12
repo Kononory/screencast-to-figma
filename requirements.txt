@@ -3,6 +3,7 @@ yt-dlp
 ffmpeg-python
 imagehash
 Pillow
+opencv-python
 google-genai
 requests
 python-dotenv
