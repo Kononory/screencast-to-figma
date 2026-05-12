@@ -15,9 +15,28 @@ The plugin loads directly from this repo — no review, no waiting, works on any
 ```bash
 git clone https://github.com/Kononory/screencast-to-figma.git
 cd screencast-to-figma
+```
+
+Create a virtual environment so packages don't conflict with your system Python:
+
+```bash
+# macOS / Linux
+python3 -m venv venv
+source venv/bin/activate
+
+# Windows
+python -m venv venv
+venv\Scripts\activate
+```
+
+Install dependencies and start:
+
+```bash
 pip install -r requirements.txt
 python app.py
 ```
+
+> **Tip:** every time you open a new terminal, run `source venv/bin/activate` (Mac/Linux) or `venv\Scripts\activate` (Windows) before `python app.py`.
 
 **2. Load the plugin in Figma desktop**
 
