@@ -26,9 +26,14 @@ import os
 
 from processor.frame_segments import FrameSegment
 from processor.frame_timeline import FrameTimelineItem
+from processor.motion import MotionZone as _MotionZone  # canonical home is motion.py
 
 
 BOUNDARY_RECOVERY_VERSION = 1
+
+
+# Re-export so existing callers `from processor.boundary_recovery import MotionZone` keep working.
+MotionZone = _MotionZone
 
 
 # -----------------------------------------------------------------------------
@@ -59,16 +64,6 @@ class BoundaryRecoveryConfig:
 
     mark_recovered_states_review: bool = True
     reject_contaminated_recovery_candidates: bool = True
-
-
-@dataclass
-class MotionZone:
-    """Lightweight placeholder. Real motion zones land in a future job."""
-    zone_id: str
-    start_ms: int | None
-    end_ms: int | None
-    peak_ms: int | None = None
-    zone_type: str = "transition"
 
 
 @dataclass

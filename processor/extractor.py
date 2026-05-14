@@ -6,6 +6,15 @@ import cv2
 import numpy as np
 from PIL import Image
 
+from processor.motion import (
+    MotionZone,
+    MotionZoneConfig,
+    SCOUT_FPS_DEFAULT,
+    dense_fps_for_zone,
+    detect_motion_zones,
+    index_in_any_zone,
+)
+
 STATUS_BAR_CROP = 0.08  # top 8% is OS status bar — ignored for dedup (clock ticks)
 
 
@@ -45,6 +54,218 @@ def extract_frames(video_path: str, output_dir: str, consec_threshold: int = 3, 
 
     # Pass 4: remove revisited identical screens from anywhere in the video
     return _dedup_global(after_consec, content_hashes, dup_threshold=global_threshold)
+
+
+# -----------------------------------------------------------------------------
+# Adaptive extraction (Session 20)
+# -----------------------------------------------------------------------------
+
+def _scout_extract(
+    video_path: str,
+    output_dir: str,
+    fps: int,
+) -> tuple[list[str], list]:
+    """First pass: cheap fps=N extraction. Returns (paths, phashes)."""
+    scout_dir = os.path.join(output_dir, "frames")
+    os.makedirs(scout_dir, exist_ok=True)
+    (
+        ffmpeg
+        .input(video_path)
+        .filter("fps", fps=fps)
+        .output(
+            os.path.join(scout_dir, "frame_%04d.jpg"),
+            **{"q:v": 2}
+        )
+        .overwrite_output()
+        .run(quiet=True)
+    )
+    paths = sorted(glob.glob(os.path.join(scout_dir, "frame_*.jpg")))
+    hashes = [imagehash.phash(Image.open(p)) for p in paths]
+    return paths, hashes
+
+
+def _dense_extract_zone(
+    video_path: str,
+    output_dir: str,
+    zone: MotionZone,
+    dense_fps: int,
+) -> tuple[list[str], dict[str, int]]:
+    """Second pass: re-extract a single motion zone at high fps.
+
+    Uses input-side -ss for fast seek (imprecise on non-keyframes, ~50-200ms
+    drift for screen recordings — acceptable since we expand zones by ±1 scout
+    frame on the detection side). Returns (paths, timestamp_map_ms).
+    """
+    if zone.start_ms is None or zone.end_ms is None:
+        return [], {}
+    dense_dir = os.path.join(output_dir, "frames_dense", zone.zone_id)
+    os.makedirs(dense_dir, exist_ok=True)
+    start_s = max(0, zone.start_ms) / 1000.0
+    duration_s = max(0.05, (zone.end_ms - zone.start_ms) / 1000.0)
+    out_pattern = os.path.join(dense_dir, "frame_%04d.jpg")
+    (
+        ffmpeg
+        .input(video_path, ss=start_s)
+        .filter("fps", fps=dense_fps)
+        .output(out_pattern, t=duration_s, **{"q:v": 2})
+        .overwrite_output()
+        .run(quiet=True)
+    )
+    paths = sorted(glob.glob(os.path.join(dense_dir, "frame_*.jpg")))
+    # Rename to a globally-unique scheme so segment/timeline/manifest paths never collide.
+    renamed: list[str] = []
+    ts_map: dict[str, int] = {}
+    for i, p in enumerate(paths):
+        new_name = f"frame_z{zone.zone_id.replace('motion_', '')}_{i + 1:04d}.jpg"
+        new_path = os.path.join(dense_dir, new_name)
+        if new_path != p:
+            os.rename(p, new_path)
+        renamed.append(new_path)
+        ts_map[new_path] = int(zone.start_ms + (i * 1000) // max(dense_fps, 1))
+    return renamed, ts_map
+
+
+def _filter_scout_outside_zones(
+    paths: list[str],
+    hashes: list,
+    zones: list[MotionZone],
+    consec_threshold: int,
+    global_threshold: int,
+) -> list[str]:
+    """Stability filter + dedup, applied ONLY to scout frames outside any zone.
+
+    Scout frames inside zones are passed through unchanged; the dense pass
+    covers those regions and the filters here would shred them at higher fps.
+    """
+    out_paths = list(paths)
+    out_hashes = list(hashes)
+
+    # Stability filter: skip in-zone indices.
+    stable = []
+    stable_hashes = []
+    for i, path in enumerate(out_paths):
+        in_zone = index_in_any_zone(i, zones)
+        if in_zone:
+            stable.append(path)
+            stable_hashes.append(out_hashes[i])
+            continue
+        # Apply the existing filter rules. For simplicity reuse the original
+        # algorithm by calling _stability_filter on the surrounding sub-window
+        # would over-engineer it; instead inline the simplest rule here:
+        # delete frames where prev_diff > 18 AND next_diff > 18 (the rest of
+        # the heuristics live in the legacy path).
+        prev_diff = abs(out_hashes[i] - out_hashes[i - 1]) if i > 0 else -1
+        next_diff = abs(out_hashes[i] - out_hashes[i + 1]) if i + 1 < len(out_hashes) else -1
+        if prev_diff > 18 and next_diff > 18:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            continue
+        stable.append(path)
+        stable_hashes.append(out_hashes[i])
+
+    # Dedup consecutive on the *stable* list, again only between out-of-zone frames.
+    # We keep zone frames untouched so the dense pass remains authoritative inside them.
+    content = {p: _content_hash(p) for p in stable}
+    deduped: list[str] = []
+    last_h = None
+    for path in stable:
+        # Determine if this scout path is inside a zone (lookup by original index).
+        try:
+            orig_idx = out_paths.index(path)
+        except ValueError:
+            orig_idx = -1
+        if index_in_any_zone(orig_idx, zones):
+            deduped.append(path)
+            last_h = None  # reset so the next out-of-zone frame is kept
+            continue
+        h = content[path]
+        if last_h is None or abs(h - last_h) >= consec_threshold:
+            deduped.append(path)
+            last_h = h
+        else:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+    return deduped
+
+
+def extract_frames_adaptive(
+    video_path: str,
+    output_dir: str,
+    consec_threshold: int = 3,
+    global_threshold: int = 3,
+    motion_config: MotionZoneConfig | None = None,
+    scout_fps: int = SCOUT_FPS_DEFAULT,
+) -> tuple[list[str], dict[str, int], list[MotionZone]]:
+    """Two-pass adaptive extraction.
+
+    Returns:
+        merged_paths: timestamp-ordered list of frame paths to feed downstream.
+        timestamp_map: {path: ms} for every frame in merged_paths.
+        zones: detected MotionZone objects (empty list if none).
+    """
+    if motion_config is None:
+        motion_config = MotionZoneConfig()
+
+    # Pass 1: scout.
+    scout_paths, scout_hashes = _scout_extract(video_path, output_dir, fps=scout_fps)
+    if not scout_paths:
+        return [], {}, []
+
+    # Detect zones.
+    zones = detect_motion_zones(scout_hashes, fps=scout_fps, config=motion_config)
+
+    # Pass 2: dense extraction per zone.
+    dense_paths: list[str] = []
+    dense_ts: dict[str, int] = {}
+    for z in zones:
+        try:
+            dense_fps = dense_fps_for_zone(z, motion_config)
+            paths, ts_map = _dense_extract_zone(video_path, output_dir, z, dense_fps)
+            dense_paths.extend(paths)
+            dense_ts.update(ts_map)
+        except Exception:
+            # Skip this zone; the scout pass still covers it at lower density.
+            continue
+
+    # Filter scout frames outside zones; preserve in-zone scout frames as-is.
+    scout_kept = _filter_scout_outside_zones(
+        scout_paths, scout_hashes, zones, consec_threshold, global_threshold
+    )
+
+    # Build a timestamp map for scout-kept frames (filename-derived).
+    ts_map: dict[str, int] = {}
+    for p in scout_kept:
+        name = os.path.splitext(os.path.basename(p))[0]
+        try:
+            n = int(name.split("_")[-1])
+            ts_map[p] = ((n - 1) * 1000) // max(scout_fps, 1)
+        except ValueError:
+            pass
+    ts_map.update(dense_ts)
+
+    # Merge and sort by timestamp.
+    merged = sorted(set(scout_kept) | set(dense_paths), key=lambda p: ts_map.get(p, 0))
+
+    # Global dedup across the merged list using content hashes. Only collapses
+    # truly-identical screens; in-zone frames with state changes survive.
+    content = {p: _content_hash(p) for p in merged}
+    seen = []
+    final: list[str] = []
+    for p in merged:
+        h = content[p]
+        if all(abs(h - s) >= global_threshold for s in seen):
+            seen.append(h)
+            final.append(p)
+        else:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+    return final, {p: ts_map[p] for p in final if p in ts_map}, zones
 
 
 def _dump_diffs(paths, hashes):

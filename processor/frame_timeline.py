@@ -192,17 +192,27 @@ def save_timeline(timeline: dict, output_dir: str) -> str:
 def build_timeline_items(
     extracted_frames: list[str],
     fps: int = EXTRACTION_FPS_DEFAULT,
+    timestamp_map: dict[str, int] | None = None,
 ) -> list[FrameTimelineItem]:
     """Build FrameTimelineItem objects from extracted frame paths.
 
     Returned items have status="candidate" and no classification info attached.
     Segment selection and classification fill those in later by mutating items
     in place.
+
+    timestamp_map: optional override {path: ms}. Used for dense-pass frames
+    whose filenames don't match the ``frame_NNNN.jpg`` pattern. When a path
+    appears in the map, that value wins; otherwise we fall back to inferring
+    from the filename.
     """
     items: list[FrameTimelineItem] = []
     for idx, path in enumerate(extracted_frames):
         filename = os.path.basename(path)
-        ts_ms, ts_source = infer_timestamp_ms_from_filename(filename, fps=fps)
+        if timestamp_map is not None and path in timestamp_map:
+            ts_ms = timestamp_map[path]
+            ts_source = "explicit_timestamp_map"
+        else:
+            ts_ms, ts_source = infer_timestamp_ms_from_filename(filename, fps=fps)
         item = FrameTimelineItem(
             frame_id=_frame_id_from_path(path),
             index=idx,
@@ -239,6 +249,8 @@ def serialize_timeline_items(
         timestamp_strategy = "inferred_from_filename_and_fps"
     elif timestamp_sources == {"unknown"}:
         timestamp_strategy = "unknown"
+    elif timestamp_sources == {"explicit_timestamp_map"}:
+        timestamp_strategy = "explicit_timestamp_map"
     else:
         timestamp_strategy = "mixed"
 
